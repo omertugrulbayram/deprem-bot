@@ -148,6 +148,9 @@ def main():
             new_count = 0
 
             for q in sorted(quakes, key=lambda x: x['time']):
+                if q['mag'] < 3.0:
+                sent_ids.add(q['id'])  # gönderme ama ID'yi kaydet
+                continue
                 if q['id'] not in sent_ids:
                     msg = format_message(q)
                     ok = send_message(msg)
