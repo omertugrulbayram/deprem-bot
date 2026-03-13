@@ -11,6 +11,7 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN', 'BURAYA_TOKEN_YAZ')
 CHANNEL_ID = '@depremradar'
 CHECK_INTERVAL = 60  # saniye
 SENT_IDS_FILE = 'sent_ids.json'
+MIN_MAG = 3.0  # minimum büyüklük
 
 # ================================================================
 # GÖNDERILEN DEPREMLERİ TAKIP ET
@@ -31,7 +32,7 @@ def save_sent_ids(ids):
 # ================================================================
 def fetch_quakes():
     try:
-        url = f'https://api.orhanaydogdu.com.tr/deprem/kandilli/live?limit=100&_={int(time.time())}'
+        url = 'https://api.orhanaydogdu.com.tr/deprem/kandilli/live?limit=100&_=' + str(int(time.time()))
         res = requests.get(url, timeout=10)
         data = res.json()
         if not data.get('status') or not data.get('result'):
@@ -45,12 +46,11 @@ def fetch_quakes():
                 lon = q['geojson']['coordinates'][0]
                 mag = float(q.get('mag', 0))
                 dep = q.get('depth', 0)
-                key = f"{lat:.3f}_{lon:.3f}_{mag}_{dep}"
+                key = '{:.3f}_{:.3f}_{}_{}'.format(lat, lon, mag, dep)
                 if key in seen:
                     continue
                 seen.add(key)
 
-                # Zaman alanını güvenli şekilde al
                 time_str = (
                     q.get('date') or
                     q.get('date_time') or
@@ -69,21 +69,24 @@ def fetch_quakes():
                     'time': time_str
                 })
             except Exception as e:
-                print(f'Kayıt parse hatası: {e}')
+                print('Kayıt parse hatası: {}'.format(e))
                 continue
 
         return quakes
     except Exception as e:
-        print(f'Fetch hatası: {e}')
+        print('Fetch hatası: {}'.format(e))
         return []
 
 # ================================================================
 # MESAJ FORMATI
 # ================================================================
 def mag_emoji(mag):
-    if mag >= 5.0: return '🔴'
-    if mag >= 4.0: return '🟠'
-    if mag >= 3.0: return '🟡'
+    if mag >= 5.0:
+        return '🔴'
+    if mag >= 4.0:
+        return '🟠'
+    if mag >= 3.0:
+        return '🟡'
     return '🟢'
 
 def format_message(q):
@@ -94,24 +97,30 @@ def format_message(q):
         title = '⚠️ BÜYÜK DEPREM ⚠️'
     elif mag >= 4.0:
         title = '❗ ÖNEMLİ DEPREM'
-    elif mag >= 3.0:
-        title = 'DEPREM'
     else:
-        title = 'Küçük Deprem'
+        title = 'DEPREM'
 
     try:
         hashtag = q['loc'].split('(')[-1].replace(')', '').strip().lower().replace(' ', '')
-    except:
+    except Exception:
         hashtag = 'turkiye'
 
     msg = (
-        f"{emoji} {title}\n\n"
-        f"📍 {q['loc']}\n"
-        f"📏 Büyüklük: *{mag:.1f}*\n"
-        f"⬇️ Derinlik: {q['dep']} km\n"
-        f"🕐 {q['time']}\n\n"
-        f"🗺️ [Haritada Gör](https://depremradar.net/?lat={q['lat']}&lon={q['lon']})\n\n"
-        f"#deprem #kandilli #{hashtag}"
+        '{} {}\n\n'
+        '📍 {}\n'
+        '📏 Büyüklük: *{:.1f}*\n'
+        '⬇️ Derinlik: {} km\n'
+        '🕐 {}\n\n'
+        '🗺️ [Haritada Gör](https://depremradar.net/?lat={}&lon={})\n\n'
+        '#deprem #kandilli #{}'
+    ).format(
+        emoji, title,
+        q['loc'],
+        mag,
+        q['dep'],
+        q['time'],
+        q['lat'], q['lon'],
+        hashtag
     )
     return msg
 
@@ -120,7 +129,7 @@ def format_message(q):
 # ================================================================
 def send_message(text):
     try:
-        url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
+        url = 'https://api.telegram.org/bot{}/sendMessage'.format(BOT_TOKEN)
         res = requests.post(url, json={
             'chat_id': CHANNEL_ID,
             'text': text,
@@ -129,17 +138,17 @@ def send_message(text):
         }, timeout=10)
         result = res.json()
         if not result.get('ok'):
-            print(f'Telegram hatası: {result}')
+            print('Telegram hatası: {}'.format(result))
         return result.get('ok', False)
     except Exception as e:
-        print(f'Gönderme hatası: {e}')
+        print('Gönderme hatası: {}'.format(e))
         return False
 
 # ================================================================
 # ANA DÖNGÜ
 # ================================================================
 def main():
-    print(f'🚀 Deprem Radar Bot başladı — Kanal: {CHANNEL_ID}')
+    print('🚀 Deprem Radar Bot başladı — Kanal: {} — Min Mag: {}'.format(CHANNEL_ID, MIN_MAG))
     sent_ids = load_sent_ids()
 
     while True:
@@ -148,29 +157,31 @@ def main():
             new_count = 0
 
             for q in sorted(quakes, key=lambda x: x['time']):
-                if q['mag'] < 3.0:
-                sent_ids.add(q['id'])  # gönderme ama ID'yi kaydet
-                continue
+                # Minimum büyüklük filtresi
+                if q['mag'] < MIN_MAG:
+                    sent_ids.add(q['id'])
+                    continue
+
                 if q['id'] not in sent_ids:
                     msg = format_message(q)
                     ok = send_message(msg)
                     if ok:
                         sent_ids.add(q['id'])
                         new_count += 1
-                        print(f"✅ Gönderildi: M{q['mag']} - {q['loc']}")
-                        time.sleep(2)
+                        print('✅ Gönderildi: M{} - {}'.format(q['mag'], q['loc']))
+                        time.sleep(4)
                     else:
-                        print(f"❌ Gönderilemedi: M{q['mag']} - {q['loc']}")
+                        print('❌ Gönderilemedi: M{} - {}'.format(q['mag'], q['loc']))
 
             if new_count > 0:
                 save_sent_ids(sent_ids)
-                print(f'💾 {new_count} yeni deprem gönderildi')
+                print('💾 {} yeni deprem gönderildi'.format(new_count))
 
             now = datetime.now().strftime('%H:%M:%S')
-            print(f'[{now}] Kontrol edildi. Sonraki: {CHECK_INTERVAL}s sonra')
+            print('[{}] Kontrol edildi. Sonraki: {}s sonra'.format(now, CHECK_INTERVAL))
 
         except Exception as e:
-            print(f'Ana döngü hatası: {e}')
+            print('Ana döngü hatası: {}'.format(e))
 
         time.sleep(CHECK_INTERVAL)
 
