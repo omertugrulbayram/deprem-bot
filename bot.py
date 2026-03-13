@@ -9,7 +9,7 @@ from datetime import datetime
 # ================================================================
 BOT_TOKEN = os.environ.get('BOT_TOKEN', 'BURAYA_TOKEN_YAZ')
 CHANNEL_ID = '@depremradar'
-CHECK_INTERVAL = 60  # saniye
+CHECK_INTERVAL = 30  # saniye
 SENT_IDS_FILE = 'sent_ids.json'
 MIN_MAG = 3.0  # minimum büyüklük
 
